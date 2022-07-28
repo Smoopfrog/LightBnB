@@ -96,16 +96,62 @@ exports.getAllReservations = getAllReservations;
  * @param {*} limit The number of results to return.
  * @return {Promise<[{}]>}  A promise to the properties.
  */
- const getAllProperties = (options, limit = 10) => {
-  return pool
-    .query(`SELECT * FROM properties LIMIT $1`, [limit])
-    .then((result) => {
-      return result.rows;
-    })
-    .catch((err) => {
-      console.log(err.message);
-      return [];
-    });
+ const getAllProperties = function (options, limit = 10) {
+  const queryParams = [];
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  WHERE 1 = 1
+  `;
+
+  // City filter
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += `AND city LIKE $${queryParams.length} `;
+  }
+
+  // Owner filter
+  if (options.owner_id) {
+    queryParams.push(`%${options.owner_id}%`);
+    queryString += ` AND owner_id LIKE $${queryParams.length}`;
+  }
+
+  // //  Maximum cost filter
+  if (options.maximum_price_per_night) {
+    let max = Number(options.maximum_price_per_night)
+    queryParams.push(max * 100);
+    queryString += ` AND cost_per_night < $${queryParams.length}`;
+  }
+
+  // Min cost filter
+  if (options.minimum_price_per_night) {
+    let min = Number(options.minimum_price_per_night)
+    queryParams.push(min * 100);
+    queryString += ` AND cost_per_night > $${queryParams.length}`
+  }
+
+  // Add GROUP BY
+  queryString += `
+  GROUP BY properties.id
+  `;
+
+  // Ratings filter
+  if (options.minimum_rating) {
+    let minRating = Number(options.minimum_rating)
+    queryParams.push(minRating);
+    queryString += `HAVING avg(rating) > $${queryParams.length}`
+  }
+
+
+  // Add ORDER BY and LIMIT
+  queryParams.push(limit);
+  queryString += `
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};`;
+
+  return pool.query(queryString, queryParams)
+    .then((res) => res.rows);
 };
 exports.getAllProperties = getAllProperties;
 
